@@ -1,6 +1,5 @@
 defmodule HexWeb.API.ReleaseController do
   use HexWeb.Web, :controller
-  alias HexWeb.Releases
 
   plug :fetch_release when action in [:show, :delete]
   plug :maybe_fetch_package when action in [:create]
@@ -8,7 +7,7 @@ defmodule HexWeb.API.ReleaseController do
   plug :authorize, [fun: &maybe_package_owner?/2] when action in [:create]
 
   def create(conn, %{"body" => body}) do
-    handle_tarball(conn, conn.assigns[:package], conn.assigns.user, body)
+    handle_tarball(conn, conn.assigns.package, conn.assigns.user, body)
   end
 
   def show(conn, _params) do
@@ -37,7 +36,7 @@ defmodule HexWeb.API.ReleaseController do
   end
 
   defp handle_tarball(conn, package, user, body) do
-    case HexWeb.Tar.metadata(body) do
+    case HexWeb.ReleaseTar.metadata(body) do
       {:ok, meta, checksum} ->
         Releases.publish(package, user, body, meta, checksum, audit: audit_data(conn))
 
@@ -48,7 +47,7 @@ defmodule HexWeb.API.ReleaseController do
   end
 
   defp publish_result({:ok, %{action: :insert, package: package, release: release}}, conn) do
-    location = release_url(conn, :show, package, release)
+    location = api_release_url(conn, :show, package, release)
 
     conn
     |> put_resp_header("location", location)

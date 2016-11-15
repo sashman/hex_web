@@ -1,7 +1,6 @@
 defmodule HexWeb.ControllerHelpers do
   import Plug.Conn
   import Phoenix.Controller
-  import Ecto
 
   @max_cache_age 60
 
@@ -44,10 +43,12 @@ defmodule HexWeb.ControllerHelpers do
   def validation_failed(conn, %Ecto.Changeset{} = changeset) do
     errors =
       Ecto.Changeset.traverse_errors(changeset, fn
-        {"is invalid", [type: type]} ->
+        {"is invalid", [type: type, validation: _]} ->
           "expected type #{pretty_type(type)}"
-        {err, _} ->
-          err
+        {msg, opts} ->
+          Enum.reduce(opts, msg, fn {key, value}, msg ->
+            String.replace(msg, "%{#{key}}", to_string(value))
+          end)
       end)
       |> normalize_errors
 
@@ -72,7 +73,7 @@ defmodule HexWeb.ControllerHelpers do
 
   # TODO: Fix clients instead
   # Since Changeset.traverse_errors returns `{field: [err], ...}`
-  # but Hex client expects `{field1: err1, ...}` we normalize to the latter.
+  # but Hex client expects `{field: err1, ...}` we normalize to the latter.
   defp normalize_errors(errors) do
     Enum.flat_map(errors, fn
       {_key, val}     when val == %{}  -> []
@@ -167,32 +168,38 @@ defmodule HexWeb.ControllerHelpers do
   def last_modified([]),  do: nil
   def last_modified(models) do
     Enum.map(List.wrap(models), fn model ->
-      Ecto.DateTime.to_erl(model.updated_at)
+      NaiveDateTime.to_erl(model.updated_at)
     end)
     |> Enum.max
   end
 
   def maybe_fetch_package(conn, _opts) do
-    if package = HexWeb.Repo.get_by(HexWeb.Package, name: conn.params["name"]) do
+    if package = HexWeb.Packages.get(conn.params["name"]) do
       assign(conn, :package, package)
     else
-      conn
+      assign(conn, :package, nil)
     end
   end
 
   def fetch_package(conn, _opts) do
-    package = HexWeb.Repo.get_by!(HexWeb.Package, name: conn.params["name"])
-    assign(conn, :package, package)
+    if package = HexWeb.Packages.get(conn.params["name"]) do
+      assign(conn, :package, package)
+    else
+      conn |> not_found |> halt
+    end
   end
 
   def fetch_release(conn, _opts) do
-    package = HexWeb.Repo.get_by!(HexWeb.Package, name: conn.params["name"])
-    release = HexWeb.Repo.get_by!(assoc(package, :releases), version: conn.params["version"])
-    release = %{release | package: package}
+    package = HexWeb.Packages.get(conn.params["name"])
+    release = package && HexWeb.Releases.get(package, conn.params["version"])
 
-    conn
-    |> assign(:package, package)
-    |> assign(:release, release)
+    if release do
+      conn
+      |> assign(:package, package)
+      |> assign(:release, release)
+    else
+      conn |> not_found |> halt
+    end
   end
 
   def authorize(conn, opts) do
@@ -201,38 +208,70 @@ defmodule HexWeb.ControllerHelpers do
   end
 
   def audit_data(conn) do
-    {conn.assigns.user, conn.assigns.user_agent}
+    # TODO: We should generalize logged_in and user between
+    #       the web and api pipelines
+    user = conn.assigns[:logged_in] || conn.assigns[:user]
+    {user, conn.assigns.user_agent}
   end
 
-  # TODO: remove once auditing is moved out of all controllers
-  def audit(multi, conn, action, fun) when is_function(fun, 1) do
-    Ecto.Multi.merge(multi, fn data ->
-      Ecto.Multi.insert(Ecto.Multi.new, :log, audit(conn, action, fun.(data)))
+  def success_to_status(true), do: 200
+  def success_to_status(false), do: 400
+
+  def password_auth(username, password) do
+    case HexWeb.Auth.password_auth(username, password) do
+      {:ok, {user, nil, email}} ->
+        if email.verified,
+          do: {:ok, user},
+        else: {:error, :unconfirmed}
+      :error ->
+        {:error, :wrong}
+    end
+  end
+
+  def auth_error_message(:wrong), do: "Invalid username, email or password."
+  def auth_error_message(:unconfirmed), do: "Email has not been verified yet."
+
+  def requires_login(conn, _opts) do
+    if logged_in?(conn) do
+      conn
+    else
+      redirect(conn, to: HexWeb.Router.Helpers.login_path(conn, :show, return: conn.request_path))
+      |> halt
+    end
+  end
+
+  def logged_in?(conn) do
+    !!conn.assigns[:logged_in]
+  end
+
+  def nillify_params(conn, keys) do
+    params =
+      Enum.reduce(keys, conn.params, fn key, params ->
+        case Map.fetch(conn.params, key) do
+          {:ok, value} -> Map.put(params, key, scrub_param(value))
+          :error -> params
+        end
+      end)
+
+    %{conn | params: params}
+  end
+
+  defp scrub_param(%{__struct__: mod} = struct) when is_atom(mod) do
+    struct
+  end
+  defp scrub_param(%{} = param) do
+    Enum.reduce(param, %{}, fn({k, v}, acc) ->
+      Map.put(acc, k, scrub_param(v))
     end)
   end
-  def audit(multi, conn, action, params) do
-    Ecto.Multi.insert(multi, :log, audit(conn, action, params))
+  defp scrub_param(param) when is_list(param) do
+    Enum.map(param, &scrub_param/1)
   end
-  def audit(conn, action, params) do
-    user = conn.assigns.user
-    user_agent = conn.assigns.user_agent
-    do_audit(user, user_agent, action, params)
+  defp scrub_param(param) do
+    if scrub?(param), do: nil, else: param
   end
 
-  defp do_audit(user, user_agent, action, params) do
-    Ecto.Changeset.change(HexWeb.AuditLog.build(user, user_agent, action, params), %{})
-  end
-
-  def audit_many(multi, conn, action, list, opts \\ []) do
-    fields = HexWeb.AuditLog.__schema__(:fields) -- [:id]
-    extra = %{inserted_at: Ecto.DateTime.utc}
-    entry = fn (element) ->
-      conn
-      |> audit(action, element)
-      |> Ecto.Changeset.apply_changes()
-      |> Map.take(fields)
-      |> Map.merge(extra)
-    end
-    Ecto.Multi.insert_all(multi, :log, HexWeb.AuditLog, Enum.map(list, entry), opts)
-  end
+  defp scrub?(" " <> rest), do: scrub?(rest)
+  defp scrub?(""), do: true
+  defp scrub?(_), do: false
 end

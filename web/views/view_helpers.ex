@@ -1,4 +1,96 @@
 defmodule HexWeb.ViewHelpers do
+  use Phoenix.HTML
+
+  def signed_in?(assigns) do
+    !!assigns[:logged_in]
+  end
+
+  def gravatar_url(nil, size) do
+    "https://www.gravatar.com/avatar?s=#{gravatar_size(size)}&d=mm"
+  end
+  def gravatar_url(_email, size) do
+    # NOTE: Disabled while waiting for privacy policy grace period
+    # hash =
+    #   :crypto.hash(:md5, String.trim(email))
+    #   |> Base.encode16(case: :lower)
+    # "https://www.gravatar.com/avatar/#{hash}?s=#{gravatar_size(size)}&d=retro"
+    gravatar_url(nil, size)
+  end
+
+  # NOTE: Remove after privacy policy grace period
+  def private_gravatar_url(nil, size) do
+    "https://www.gravatar.com/avatar?s=#{gravatar_size(size)}&d=mm"
+  end
+  def private_gravatar_url(email, size) do
+    hash =
+      :crypto.hash(:md5, String.trim(email))
+      |> Base.encode16(case: :lower)
+    "https://www.gravatar.com/avatar/#{hash}?s=#{gravatar_size(size)}&d=retro"
+  end
+
+  defp gravatar_size(:large), do: 440
+  defp gravatar_size(:small), do: 80
+
+  def changeset_error(changeset) do
+    if changeset.action do
+      content_tag(:div, class: "alert alert-danger") do
+        "Oops, something went wrong! Please check the errors below."
+      end
+    end
+  end
+
+  def text_input(form, field, opts \\ []) do
+    value = form.params[Atom.to_string(field)] || Map.get(form.data, field)
+
+    opts =
+      opts
+      |> add_error_class(form, field)
+      |> Keyword.put_new(:value, value)
+
+    Phoenix.HTML.Form.text_input(form, field, opts)
+  end
+
+  def email_input(form, field, opts \\ []) do
+    value = form.params[Atom.to_string(field)] || Map.get(form.data, field)
+
+    opts =
+      opts
+      |> add_error_class(form, field)
+      |> Keyword.put_new(:value, value)
+
+    Phoenix.HTML.Form.email_input(form, field, opts)
+  end
+
+  def password_input(form, field, opts \\ []) do
+    opts = add_error_class(opts, form, field)
+    Phoenix.HTML.Form.password_input(form, field, opts)
+  end
+
+  def select(form, field, options, opts \\ []) do
+    opts = add_error_class(opts, form, field)
+    Phoenix.HTML.Form.select(form, field, options, opts)
+  end
+
+  defp add_error_class(opts, form, field) do
+    error? = Keyword.has_key?(form.errors, field)
+    error_class = if error?, do: "form-input-error", else: ""
+    class = "form-control #{error_class} #{opts[:class]}"
+
+    Keyword.put(opts, :class, class)
+  end
+
+  def error_tag(form, field) do
+    if error = form.errors[field] do
+      content_tag(:span, translate_error(error), class: "form-error")
+    end
+  end
+
+  defp translate_error({msg, opts}) do
+    Enum.reduce(opts, msg, fn {key, value}, msg ->
+      String.replace(msg, "%{#{key}}", to_string(value))
+    end)
+  end
+
   def paginate(page, count, opts) do
     per_page  = opts[:items_per_page]
     max_links = opts[:page_links] # Needs to be odd number
@@ -43,60 +135,6 @@ defmodule HexWeb.ViewHelpers do
     text
   end
 
-  @doc """
-  Formats a package's release info into a build tools dependency snippet.
-  """
-  def dep_snippet(_, _, _, nil) do
-    ""
-  end
-
-  def dep_snippet(:mix, package_name, release) do
-    version = snippet_version(:mix, release.version)
-    app_name = release.meta.app || package_name
-
-    if package_name == app_name do
-      "{:#{package_name}, \"#{version}\"}"
-    else
-      "{:#{app_name}, \"#{version}\", hex: :#{package_name}}"
-    end
-  end
-
-  def dep_snippet(:rebar, package_name, release) do
-    version = snippet_version(:rebar, release.version)
-    app_name = release.meta.app || package_name
-
-    if package_name == app_name do
-      "{#{package_name}, \"#{version}\"}"
-    else
-      "{#{app_name}, \"#{version}\", {pkg, #{package_name}}}"
-    end
-  end
-
-  def dep_snippet(:erlang_mk, package_name, release) do
-    version = snippet_version(:erlang_mk, release.version)
-    "dep_#{package_name} = hex #{version}"
-  end
-
-  def snippet_version(:mix, %Version{major: 0, minor: minor, patch: patch, pre: []}),
-    do: "~> 0.#{minor}.#{patch}"
-  def snippet_version(:mix, %Version{major: major, minor: minor, pre: []}),
-    do: "~> #{major}.#{minor}"
-  def snippet_version(:mix, %Version{major: major, minor: minor, patch: patch, pre: pre}),
-    do: "~> #{major}.#{minor}.#{patch}#{pre_snippet(pre)}"
-
-  def snippet_version(other, %Version{major: major, minor: minor, patch: patch, pre: pre})
-    when other in [:rebar, :erlang_mk],
-    do: "#{major}.#{minor}.#{patch}#{pre_snippet(pre)}"
-
-  defp pre_snippet([]), do: ""
-  defp pre_snippet(pre) do
-    "-" <>
-      Enum.map_join(pre, ".", fn
-        int when is_integer(int) -> Integer.to_string(int)
-        string when is_binary(string) -> string
-      end)
-  end
-
   def human_number_space(string) when is_binary(string) do
     split         = rem(byte_size(string), 3)
     string        = :erlang.binary_to_list(string)
@@ -110,7 +148,7 @@ defmodule HexWeb.ViewHelpers do
   end
 
   def human_relative_time_from_now(date) do
-    ts = Ecto.DateTime.to_erl(date) |> :calendar.datetime_to_gregorian_seconds
+    ts = NaiveDateTime.to_erl(date) |> :calendar.datetime_to_gregorian_seconds
     diff = :calendar.datetime_to_gregorian_seconds(:calendar.universal_time) - ts
     rel_from_now(:calendar.seconds_to_daystime(diff))
   end
@@ -132,7 +170,7 @@ defmodule HexWeb.ViewHelpers do
   defp rel_from_now({day, {_, _, _}}),
     do: "#{day} days ago"
 
-  def pretty_date(%Ecto.DateTime{year: year, month: month, day: day}) do
+  def pretty_date(%NaiveDateTime{year: year, month: month, day: day}) do
     "#{pretty_month(month)} #{day}, #{year}"
   end
 
@@ -148,6 +186,10 @@ defmodule HexWeb.ViewHelpers do
   defp pretty_month(10), do: "October"
   defp pretty_month(11), do: "November"
   defp pretty_month(12), do: "December"
+
+  def if_value(arg, nil, _fun),   do: arg
+  def if_value(arg, false, _fun), do: arg
+  def if_value(arg, _true, fun),  do: fun.(arg)
 end
 
 defimpl Phoenix.HTML.Safe, for: Version do

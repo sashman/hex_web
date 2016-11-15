@@ -25,16 +25,21 @@ defmodule HexWeb.Web do
       import Ecto.Query, only: [from: 1, from: 2]
       import HexWeb.Validation
 
+      alias Ecto.Multi
+
       HexWeb.Web.shared
     end
   end
 
   def crud do
     quote do
-      alias HexWeb.Repo
       import Ecto
+      import Ecto.Changeset
       import Ecto.Query, only: [from: 1, from: 2]
-      import HexWeb.AuditLog, only: [audit: 4, audit_many: 4]
+      import HexWeb.AuditLog, only: [audit: 4, audit_many: 4, audit_with_user: 4]
+
+      alias HexWeb.Repo
+      alias Ecto.Multi
 
       HexWeb.Web.shared
     end
@@ -44,13 +49,12 @@ defmodule HexWeb.Web do
     quote do
       use Phoenix.Controller
 
-      alias HexWeb.Repo
       import Ecto
       import Ecto.Query, only: [from: 1, from: 2]
 
-      import HexWeb.Router.Helpers
-      import HexWeb.ControllerHelpers
-      import HexWeb.AuthHelpers
+      import HexWeb.{Router.Helpers, ControllerHelpers, AuthHelpers}
+
+      alias HexWeb.Endpoint
 
       HexWeb.Web.shared
     end
@@ -59,16 +63,22 @@ defmodule HexWeb.Web do
   def view do
     quote do
       use Phoenix.View, root: "web/templates"
+      use Phoenix.HTML
 
       # Import convenience functions from controllers
       import Phoenix.Controller, only: [get_csrf_token: 0, get_flash: 2, view_module: 1]
 
       # Use all HTML functionality (forms, tags, etc)
-      use Phoenix.HTML
+      import Phoenix.HTML.Form, except: [
+        text_input: 2, text_input: 3,
+        email_input: 2, email_input: 3,
+        password_input: 2, password_input: 3,
+        select: 3, select: 4
+      ]
 
-      import HexWeb.Router.Helpers
-      import HexWeb.ViewHelpers
-      import HexWeb.ViewIcons
+      import HexWeb.{Router.Helpers, ViewHelpers, ViewIcons}
+
+      alias HexWeb.Endpoint
 
       HexWeb.Web.shared
     end
@@ -84,23 +94,32 @@ defmodule HexWeb.Web do
   defmacro shared do
     quote do
       alias HexWeb.{
+        Assets,
         AuditLog,
         Download,
+        Email,
         Install,
+        Installs,
         Key,
+        Keys,
+        Mailer,
+        Owners,
         Package,
+        Packages,
         PackageDownload,
         PackageMetadata,
         PackageOwner,
-        Registry,
+        RegistryBuilder,
         Release,
+        Releases,
         ReleaseDownload,
         ReleaseMetadata,
         Requirement,
-        User
+        Sitemaps,
+        User,
+        Users,
+        UserHandles,
       }
-
-      import HexWeb.SharedHelpers
     end
   end
 

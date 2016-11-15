@@ -1,13 +1,11 @@
 defmodule HexWeb.Package do
   use HexWeb.Web, :model
-  import Ecto.Query, only: [from: 2]
   @derive {Phoenix.Param, key: :name}
-
-  @timestamps_opts [usec: true]
 
   schema "packages" do
     field :name, :string
-    field :docs_updated_at, Ecto.DateTime
+    field :docs_updated_at, :naive_datetime
+    field :latest_version, HexWeb.Version, virtual: true
     timestamps()
 
     has_many :releases, Release
@@ -18,7 +16,7 @@ defmodule HexWeb.Package do
   end
 
   @elixir_names ~w(eex elixir ex_unit iex logger mix)
-  @tool_names ~w(rebar rebar3 hex)
+  @tool_names ~w(rebar rebar3 hex hex_web hexpm)
   @otp_names ~w(
     appmon asn1 common_test compiler cosEvent cosEventDomain cosFileTransfer
     cosNotification cosProperty cosTime cosTransactions crypto debugger
@@ -27,8 +25,9 @@ defmodule HexWeb.Package do
     os_mon ose otp_mibs parsetools percept pman public_key reltool runtime_tools
     sasl snmp ssh ssl stdlib syntax_tools test_server toolbar tools tv typer
     webtool wx xmerl)
+  @app_names ~w(flow firenest toucan net registry)
 
-  @reserved_names @elixir_names ++ @otp_names ++ @tool_names
+  @reserved_names @elixir_names ++ @otp_names ++ @tool_names ++ @app_names
 
   defp changeset(package, :create, params) do
     changeset(package, :update, params)
@@ -39,6 +38,7 @@ defmodule HexWeb.Package do
     cast(package, params, ~w(name))
     |> cast_embed(:meta, required: true)
     |> validate_required(:name)
+    |> validate_length(:name, min: 3)
     |> validate_format(:name, ~r"^[a-z]\w*$")
     |> validate_exclusion(:name, @reserved_names)
   end
@@ -57,19 +57,6 @@ defmodule HexWeb.Package do
          where: o.package_id == ^package.id,
          where: o.owner_id == ^user.id,
          select: count(o.id) >= 1)
-  end
-
-  def docs_sitemap do
-    from(p in Package,
-         order_by: p.name,
-         where: not is_nil(p.docs_updated_at),
-         select: {p.name, p.docs_updated_at})
-  end
-
-  def packages_sitemap do
-    from(p in Package,
-         order_by: p.name,
-         select: {p.name, p.updated_at})
   end
 
   def build_owner(package, user) do

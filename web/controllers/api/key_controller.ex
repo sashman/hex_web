@@ -1,6 +1,5 @@
 defmodule HexWeb.API.KeyController do
   use HexWeb.Web, :controller
-  alias HexWeb.Keys
 
   plug :authorize when action != :create
   plug :authorize, [only_basic: true, allow_unconfirmed: true] when action == :create
@@ -19,14 +18,17 @@ defmodule HexWeb.API.KeyController do
   def show(conn, %{"name" => name}) do
     user = conn.assigns.user
     authing_key = conn.assigns.key
-
     key = Keys.get(user, name)
 
-    when_stale(conn, key, fn conn ->
-      conn
-      |> api_cache(:private)
-      |> render(:show, key: key, authing_key: authing_key)
-    end)
+    if key do
+      when_stale(conn, key, fn conn ->
+        conn
+        |> api_cache(:private)
+        |> render(:show, key: key, authing_key: authing_key)
+      end)
+    else
+      not_found(conn)
+    end
   end
 
   def create(conn, params) do
@@ -35,7 +37,7 @@ defmodule HexWeb.API.KeyController do
 
     case Keys.add(user, params, audit: audit_data(conn)) do
       {:ok, %{key: key}} ->
-        location = key_url(conn, :show, params["name"])
+        location = api_key_url(conn, :show, params["name"])
 
         conn
         |> put_resp_header("location", location)
@@ -70,6 +72,6 @@ defmodule HexWeb.API.KeyController do
 
     conn
     |> put_status(200)
-    |> render(:delete, key: HexWeb.Repo.get!(Key, key.id), authing_key: key)
+    |> render(:delete, key: Keys.get(key.id), authing_key: key)
   end
 end

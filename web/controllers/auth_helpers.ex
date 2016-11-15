@@ -19,7 +19,7 @@ defmodule HexWeb.AuthHelpers do
       {:error, :key} ->
         unauthorized(conn, "invalid username and API key combination")
       {:error, :unconfirmed} ->
-        forbidden(conn, "account unconfirmed")
+        forbidden(conn, "email not verified")
       {:error, :revoked_key} ->
         unauthorized(conn, "API key revoked")
     end
@@ -41,11 +41,11 @@ defmodule HexWeb.AuthHelpers do
       end
 
     case result do
-      {:ok, {user, key}} ->
+      {:ok, {user, key, email}} ->
         cond do
-          allow_unconfirmed or user.confirmed ->
+          allow_unconfirmed || (email && email.verified) ->
             {:ok, {user, key}}
-          !user.confirmed ->
+          true ->
             {:error, :unconfirmed}
         end
       error ->
@@ -55,8 +55,8 @@ defmodule HexWeb.AuthHelpers do
 
   defp basic_auth(credentials) do
     case String.split(Base.decode64!(credentials), ":", parts: 2) do
-      [username, password] ->
-        case HexWeb.Auth.password_auth(username, password) do
+      [username_or_email, password] ->
+        case HexWeb.Auth.password_auth(username_or_email, password) do
           {:ok, user} -> {:ok, user}
           :error -> {:error, :basic}
         end
@@ -88,8 +88,7 @@ defmodule HexWeb.AuthHelpers do
   def package_owner?(%Plug.Conn{} = conn, user),
     do: package_owner?(conn.assigns.package, user)
   def package_owner?(%HexWeb.Package{} = package, user) do
-    HexWeb.Package.is_owner(package, user)
-    |> HexWeb.Repo.one!
+    HexWeb.Packages.owner?(package, user)
   end
 
   def maybe_package_owner?(%Plug.Conn{} = conn, user),
@@ -97,12 +96,11 @@ defmodule HexWeb.AuthHelpers do
   def maybe_package_owner?(nil, _user),
     do: true
   def maybe_package_owner?(%HexWeb.Package{} = package, user) do
-    HexWeb.Package.is_owner(package, user)
-    |> HexWeb.Repo.one!
+    HexWeb.Packages.owner?(package, user)
   end
 
   def correct_user?(%Plug.Conn{} = conn, user),
     do: correct_user?(conn.params["name"], user)
-  def correct_user?(name, user) when is_binary(name),
-    do: name == user.username
+  def correct_user?(username_or_email, user) when is_binary(username_or_email),
+    do: username_or_email in [user.username, user.email]
 end

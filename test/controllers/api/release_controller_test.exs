@@ -7,7 +7,7 @@ defmodule HexWeb.API.ReleaseControllerTest do
   alias HexWeb.RegistryBuilder
 
   setup do
-    user = User.build(%{username: "eric", email: "eric@mail.com", password: "eric"}, true) |> HexWeb.Repo.insert!
+    user = create_user("eric", "eric@mail.com", "ericeric")
     pkg = Package.build(user, pkg_meta(%{name: "decimal", description: "Arbitrary precision decimal aritmetic for Elixir."})) |> HexWeb.Repo.insert!
     Release.build(pkg, rel_meta(%{version: "0.0.1", app: "decimal"}), "") |> HexWeb.Repo.insert!
     :ok
@@ -152,7 +152,7 @@ defmodule HexWeb.API.ReleaseControllerTest do
     assert [%HexWeb.AuditLog{action: "release.publish"}, %HexWeb.AuditLog{action: "release.publish"}] =
            HexWeb.Repo.all(HexWeb.AuditLog)
 
-    Ecto.Changeset.change(release, inserted_at: %{Ecto.DateTime.utc | year: 2000})
+    Ecto.Changeset.change(release, inserted_at: %{HexWeb.Utils.utc_now | year: 2000})
     |> HexWeb.Repo.update!
 
     conn = build_conn()
@@ -177,7 +177,7 @@ defmodule HexWeb.API.ReleaseControllerTest do
     assert conn.status == 201
     package = HexWeb.Repo.get_by!(Package, name: "postgrex")
     release = HexWeb.Repo.get_by!(assoc(package, :releases), version: "0.0.1")
-    Ecto.Changeset.change(release, inserted_at: %{Ecto.DateTime.utc | year: 2000, month: 1})
+    Ecto.Changeset.change(release, inserted_at: %{HexWeb.Utils.utc_now | year: 2000})
     |> HexWeb.Repo.update!
 
     conn = build_conn()
@@ -189,7 +189,7 @@ defmodule HexWeb.API.ReleaseControllerTest do
     assert %{"errors" => %{"inserted_at" => "can only delete a release up to one hour after creation"}} =
            Poison.decode!(conn.resp_body)
 
-    Ecto.Changeset.change(release, inserted_at: %{Ecto.DateTime.utc | year: 2030, month: 1})
+    Ecto.Changeset.change(release, inserted_at: %{HexWeb.Utils.utc_now | year: 2030})
     |> HexWeb.Repo.update!
 
     conn = build_conn()
@@ -266,7 +266,7 @@ defmodule HexWeb.API.ReleaseControllerTest do
     assert conn.status == 422
     body = Poison.decode!(conn.resp_body)
     assert body["message"] == "Validation error(s)"
-    assert %{"requirements" => %{"decimal" => "Failed to use \"decimal\" because\n  You specified ~> 1.0 in your mix.exs\n"}} = body["errors"]
+    assert %{"requirements" => %{"decimal" => "Failed to use \"decimal\" because\n  mix.exs specifies ~> 1.0\n"}} = body["errors"]
   end
 
   test "create release updates registry" do
@@ -293,5 +293,13 @@ defmodule HexWeb.API.ReleaseControllerTest do
     body = Poison.decode!(conn.resp_body)
     assert body["url"] =~ "/api/packages/decimal/releases/0.0.1"
     assert body["version"] == "0.0.1"
+  end
+
+  test "get unknown release" do
+    conn = get build_conn(), "api/packages/decimal/releases/1.2.3"
+    assert conn.status == 404
+
+    conn = get build_conn(), "api/packages/unknown/releases/1.2.3"
+    assert conn.status == 404
   end
 end

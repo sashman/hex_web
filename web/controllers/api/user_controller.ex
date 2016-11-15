@@ -1,67 +1,61 @@
 defmodule HexWeb.API.UserController do
   use HexWeb.Web, :controller
 
-  plug :authorize, [fun: &correct_user?/2] when action == :show
+  plug :authorize when action in [:test]
 
   def create(conn, params) do
-    # Unconfirmed users can be recreated
-    if (user = HexWeb.Repo.get_by(User, username: params["username"])) && !user.confirmed do
-      # Unconfirmed users only have the key creation in the audits log
-      # That key will be deleted when the user is deleted
-      HexWeb.Repo.delete_all(assoc(user, :audit_logs))
-      HexWeb.Repo.delete!(user)
-    end
+    params = email_param(params)
 
-    case User.build(params) |> HexWeb.Repo.insert do
+    case Users.add(params, audit: audit_data(conn)) do
       {:ok, user} ->
-        HexWeb.Mailer.send(
-          "confirmation_request.html",
-          "Hex.pm - Account confirmation",
-          [user.email],
-          username: user.username,
-          key: user.confirmation_key)
-
-        location = user_url(conn, :show, user.username)
+        location = api_user_url(conn, :show, user.username)
 
         conn
         |> put_resp_header("location", location)
         |> api_cache(:private)
         |> put_status(201)
-        |> render(:show, user: user)
+        |> render(:show, user: user, show_email: true)
       {:error, changeset} ->
         validation_failed(conn, changeset)
     end
   end
 
-  def show(conn, _params) do
-    user = HexWeb.Repo.preload(conn.assigns.user, :owned_packages)
+  def show(conn, %{"name" => username}) do
+    user = Users.get(username)
 
-    when_stale(conn, user, fn conn ->
-      conn
-      |> api_cache(:private)
-      |> render(:show, user: user)
-    end)
+    if user do
+      user =
+        user
+        |> Users.with_owned_packages
+        |> Users.with_emails
+
+      when_stale(conn, user, fn conn ->
+        conn
+        |> api_cache(:private)
+        |> render(:show, user: user, show_email: false)
+      end)
+    else
+      not_found(conn)
+    end
+  end
+
+  def test(conn, params) do
+    show(conn, params)
   end
 
   def reset(conn, %{"name" => name}) do
-    user = HexWeb.Repo.get_by(User, username: name) ||
-             HexWeb.Repo.get_by(User, email: name)
+    Users.password_reset_init(name, audit: audit_data(conn))
 
-    if user do
-      user = User.password_reset(user) |> HexWeb.Repo.update!
+    conn
+    |> api_cache(:private)
+    |> send_resp(204, "")
+  end
 
-      HexWeb.Mailer.send(
-        "password_reset_request.html",
-        "Hex.pm - Password reset request",
-        [user.email],
-        username: user.username,
-        key: user.reset_key)
-
-      conn
-      |> api_cache(:private)
-      |> send_resp(204, "")
+  defp email_param(params) do
+    if email = params["email"] do
+      Map.put_new(params, "emails", [%{"email" => email}])
     else
-      not_found(conn)
+      params
     end
   end
 end

@@ -1,61 +1,42 @@
 defmodule HexWeb.Owners do
   use HexWeb.Web, :crud
 
-  def all(package) do
-    assoc(package, :owners)
+  def all(package, preload \\ []) do
+    from(u in assoc(package, :owners), preload: ^preload)
     |> Repo.all
-  end
-
-  def get(email) do
-    Repo.get_by!(User, email: email)
   end
 
   def add(package, owner, [audit: audit_data]) do
     multi =
-      Ecto.Multi.new
-      |> Ecto.Multi.insert(:owner, Package.build_owner(package, owner))
+      Multi.new
+      |> Multi.insert(:owner, Package.build_owner(package, owner))
       |> audit(audit_data, "owner.add", {package, owner})
 
     case Repo.transaction(multi) do
       {:ok, _} ->
-        owners = all(package)
-
-        HexWeb.Mailer.send(
-          "owner_add.html",
-          "Hex.pm - Owner added",
-          Enum.map(owners, & &1.email),
-          username: owner.username,
-          email: owner.email,
-          package: package.name
-        )
+        owners = package |> all |> Users.with_emails
+        owner = Enum.find(owners, &(&1.id == owner.id))
+        Mailer.send_owner_added_email(package, owners, owner)
         :ok
-
       {:error, :owner, changeset, _} ->
         {:error, changeset}
     end
   end
 
   def remove(package, owner, [audit: audit_data]) do
-    owners = all(package)
+    owners = package |> all |> Users.with_emails
 
     if length(owners) == 1 do
       {:error, :last_owner}
     else
       multi =
-        Ecto.Multi.new
-        |> Ecto.Multi.delete_all(:package_owner, Package.owner(package, owner))
+        Multi.new
+        |> Multi.delete_all(:package_owner, Package.owner(package, owner))
         |> audit(audit_data, "owner.remove", {package, owner})
 
       {:ok, _} = Repo.transaction(multi)
-
-      HexWeb.Mailer.send(
-        "owner_remove.html",
-        "Hex.pm - Owner removed",
-        Enum.map(owners, & &1.email),
-        username: owner.username,
-        email: owner.email,
-        package: package.name
-      )
+      owner = Enum.find(owners, &(&1.id == owner.id))
+      Mailer.send_owner_removed_email(package, owners, owner)
       :ok
     end
   end

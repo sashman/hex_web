@@ -30,5 +30,12 @@ defmodule HexWeb.Endpoint do
   plug Plug.MethodOverride
   plug Plug.Head
 
+  plug HexWeb.Session,
+    store: :cookie,
+    key: "_hex_web_key",
+    signing_salt: Application.get_env(:hex_web, :cookie_sign_salt),
+    encryption_salt: Application.get_env(:hex_web, :cookie_encr_salt),
+    max_age: 60 * 60 * 24 * 30
+
   plug HexWeb.Router
 end

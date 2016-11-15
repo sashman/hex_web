@@ -10,17 +10,18 @@ tool_compatibility = %{
   "mix" => [:mix],
   "rebar" => [:mix, :rebar, :erlang_mk],
   "rebar3"=> [:mix, :rebar, :erlang_mk],
+  "make" => [:mix, :erlang_mk],
   "erlang.mk" => [:mix, :erlang_mk]
 }
 
-compatible_tools = Enum.flat_map( build_tools, &(Map.get(tool_compatibility, &1, [])))
+compatible_tools = Enum.flat_map(build_tools, &(Map.get(tool_compatibility, &1, [])))
                    |> Enum.uniq
 
 tools = Keyword.take(tools, compatible_tools)
 
 %>
 
-<h2 class="package-title"><a href="<%= package_path(HexWeb.Endpoint, :show, @package) %>"><%= @package.name %></a>
+<h2 class="package-title"><a href="<%= package_path(Endpoint, :show, @package) %>"><%= @package.name %></a>
  <%= if @current_release do %>
   <span class="version"><%= @current_release.version %></span>
   <% end %>
@@ -61,7 +62,7 @@ tools = Keyword.take(tools, compatible_tools)
           <%= icon(:octicon, :calendar, class: "stat-icon stat-icon-calendar") %>
           <span class="stat-info">
             <span class="count-info">
-              <%= human_number_space(if @release_downloads, do: @release_downloads.downloads, else: 0) %>
+              <%= human_number_space(if @current_release.downloads, do: @current_release.downloads.downloads, else: 0) %>
             </span> <br>
             <span class="stat-text">downloads <br> this version</span>
           </span>
@@ -122,7 +123,7 @@ tools = Keyword.take(tools, compatible_tools)
           <%= if @current_release do %>
             <%= for %{name: name, requirement: req, app: app, optional: optional} <- @current_release.requirements do %>
             <li>
-              <a href="<%= package_path(HexWeb.Endpoint, :show, name) %>"><%= name %></a> <%= req %>
+              <a href="<%= package_path(Endpoint, :show, name) %>"><%= name %></a> <%= req %>
               <%= if app != name do %>(app: <%= app %>)<% end %>
               <%= if optional do %>(optional)<% end %>
             </li>
@@ -159,10 +160,21 @@ tools = Keyword.take(tools, compatible_tools)
     <%= if build_tools != [] do %>
       <h3>Build Tools</h3>
       <div class="build-tools-box">
-        <%= for tool <- @current_release.meta.build_tools do %>
+        <%= for tool <- Enum.uniq(@current_release.meta.build_tools) do %>
         <span class="build-tool <%= tool %>"><%= tool %></span>
         <% end %>
       </div>
     <% end %>
+
+    <h3>Owners</h3>
+    <ul class="owners-list">
+      <%= for user <- @owners do %>
+        <li>
+          <a href="<%= user_path(Endpoint, :show, user) %>">
+            <img src="<%= gravatar_url(User.email(user, :public), :small) %>" class="owner-avatar"><%= user.username %>
+          </a>
+        </li>
+      <% end %>
+    </ul>
   </div>
 </div>

@@ -5,10 +5,8 @@ defmodule HexWeb.API.KeyControllerTest do
   alias HexWeb.User
 
   setup do
-    User.build(%{username: "eric", email: "eric@mail.com", password: "eric"}, true)
-    |> HexWeb.Repo.insert!
-    User.build(%{username: "other", email: "other@mail.com", password: "other"}, true)
-    |> HexWeb.Repo.insert!
+    create_user("eric", "eric@mail.com", "ericeric")
+    create_user("other", "other@mail.com", "otherother")
     :ok
   end
 
@@ -16,7 +14,7 @@ defmodule HexWeb.API.KeyControllerTest do
     body = %{name: "macbook"}
     conn = build_conn()
            |> put_req_header("content-type", "application/json")
-           |> put_req_header("authorization", "Basic " <> Base.encode64("eric:eric"))
+           |> put_req_header("authorization", "Basic " <> Base.encode64("eric:ericeric"))
            |> post("api/keys", Poison.encode!(body))
 
     user = HexWeb.Repo.get_by!(User, username: "eric")

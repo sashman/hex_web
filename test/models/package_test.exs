@@ -5,11 +5,7 @@ defmodule HexWeb.PackageTest do
   alias HexWeb.Package
 
   setup do
-    user =
-      User.build(%{username: "eric", email: "eric@mail.com", password: "eric"}, true)
-      |> HexWeb.Repo.insert!
-
-    {:ok, user: user}
+    %{user: create_user("eric", "eric@mail.com", "ericeric")}
   end
 
   test "create package and get", %{user: user} do
@@ -30,15 +26,20 @@ defmodule HexWeb.PackageTest do
   end
 
   test "validate blank description in metadata", %{user: user} do
-    meta = %{
-      "maintainers" => ["eric", "josé"],
-      "licenses"     => ["apache", "BSD"],
-      "links"        => %{"github" => "www", "docs" => "www"},
-      "description"  => ""}
-
-    assert {:error, changeset} = Package.build(user, pkg_meta(%{name: "ecto", meta: meta})) |> HexWeb.Repo.insert
+    changeset = Package.build(user, pkg_meta(%{name: "ecto", description: ""}))
     assert changeset.errors == []
-    assert changeset.changes.meta.errors == [description: {"can't be blank", []}]
+    assert [description: {"can't be blank", _}] = changeset.changes.meta.errors
+  end
+
+  test "validate invalid link in metadata", %{user: user} do
+    meta = pkg_meta(%{name: "ecto", description: "DSL",
+                      links: %{"docs" => "https://hexdocs.pm", "a" => "aaa", "b" => "bbb"}})
+    changeset = Package.build(user, meta)
+
+    assert changeset.errors == []
+    assert [links: {"invalid link \"aaa\"", _},
+            links: {"invalid link \"bbb\"", _}] =
+           changeset.changes.meta.errors
   end
 
   test "packages are unique", %{user: user} do
@@ -47,14 +48,14 @@ defmodule HexWeb.PackageTest do
   end
 
   test "reserved names", %{user: user} do
-    assert {:error, %{errors: [name: {"is reserved", []}]}} = Package.build(user, pkg_meta(%{name: "elixir", description: "Awesomeness."})) |> HexWeb.Repo.insert
+    assert {:error, %{errors: [name: {"is reserved", _}]}} = Package.build(user, pkg_meta(%{name: "elixir", description: "Awesomeness."})) |> HexWeb.Repo.insert
   end
 
   test "search extra metadata" do
     meta = %{
       "maintainers"  => ["justin"],
       "licenses"     => ["apache", "BSD"],
-      "links"        => %{"github" => "www", "docs" => "www"},
+      "links"        => %{"github" => "https://github.com", "docs" => "https://hexdocs.pm"},
       "description"  => "description",
       "extra"        => %{"foo" => %{"bar" => "baz"}, "list" => ["a", 1]}}
 
@@ -90,7 +91,7 @@ defmodule HexWeb.PackageTest do
     rel =
       HexWeb.Release.build(phoenix, rel_meta(%{version: "0.0.1", app: "phoenix"}), "")
       |> HexWeb.Repo.insert!
-    HexWeb.Repo.insert!(%HexWeb.Download{release: rel, day: Ecto.Date.utc(), downloads: 10})
+    HexWeb.Repo.insert!(%HexWeb.Download{release: rel, day: HexWeb.Utils.utc_today, downloads: 10})
 
     :ok = HexWeb.Repo.refresh_view(HexWeb.PackageDownload)
 

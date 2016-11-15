@@ -68,4 +68,61 @@ defmodule HexWeb.Plugs do
         end
     end
   end
+
+  def web_user_agent(conn, _opts) do
+    assign(conn, :user_agent, "WEB")
+  end
+
+  def login(conn, _opts) do
+    username = get_session(conn, "username")
+    key = get_session(conn, "key")
+
+    user = username && HexWeb.Users.get_by_username(username)
+    user = user && HexWeb.Users.with_emails(user)
+
+    if user && HexWeb.Users.signed_in?(user, key) do
+      assign(conn, :logged_in, user)
+    else
+      assign(conn, :logged_in, nil)
+    end
+  end
+
+  def auth_gate(conn, _opts) do
+    if possible = Application.get_env(:hex_web, :auth_gate) do
+      case get_req_header(conn, "authorization") do
+        ["Basic " <> credentials | _] ->
+          possible = String.split(possible, ",")
+          basic_auth(conn, credentials, possible)
+        _ ->
+          auth_error(conn)
+      end
+    else
+      conn
+    end
+  end
+
+  defp basic_auth(conn, credentials, possible) do
+    credentials = Base.decode64!(credentials)
+    if credentials in possible do
+      update_auth_header(conn)
+    else
+      auth_error(conn)
+    end
+  end
+
+  # Try to enable use of  multiple auth headers for API
+  defp update_auth_header(conn) do
+    if authorization = get_req_header(conn, "authorization") |> Enum.at(1) do
+      put_req_header(conn, "authorization", authorization)
+    else
+      %{conn | req_headers: List.keydelete(conn.req_headers, "authorization", 0)}
+    end
+  end
+
+  defp auth_error(conn) do
+    conn
+    |> put_resp_header("www-authenticate", "Basic realm=hex")
+    |> HexWeb.ControllerHelpers.render_error(401)
+    |> halt
+  end
 end

@@ -1,40 +1,52 @@
 defmodule HexWeb.PasswordController do
   use HexWeb.Web, :controller
 
-  def show_confirm(conn, %{"username" => username, "key" => key}) do
-    user = HexWeb.Repo.get_by(User, username: username)
-    success = User.confirm?(user, key)
+  def show(conn, %{"username" => username, "key" => key}) do
+    path = password_path(conn, :show)
 
-    if success do
-      User.confirm(user) |> HexWeb.Repo.update!
-      HexWeb.Mailer.send("confirmed.html", "Hex.pm - Account confirmed", [user.email], [])
-    end
-
-    render conn, "confirm.html", [
-      success: success
-    ]
+    conn
+    |> put_resp_cookie("reset_username", username, max_age: 60, path: path)
+    |> put_resp_cookie("reset_key", key, max_age: 60, path: path)
+    |> redirect(to: path)
   end
 
-  def show_reset(conn, %{"username" => username, "key" => key}) do
-    render conn, "reset.html", [
+  def show(conn, _params) do
+    username = conn.req_cookies["reset_username"]
+    key = conn.req_cookies["reset_key"]
+    changeset = User.update_password(%User{}, %{})
+
+    render_show(conn, username, key, changeset)
+  end
+
+  def update(conn, params) do
+    params = params["user"]
+    username = params["username"]
+    key = params["key"]
+    revoke_all_keys? = (params["revoke_all_keys"] || "yes") == "yes"
+
+    case Users.password_reset_finish(username, key, params, revoke_all_keys?, audit: audit_data(conn)) do
+      :ok ->
+        conn
+        |> put_flash(:info, "Your account password has been changed to your new password.")
+        |> put_flash(:custom_location, true)
+        |> redirect(to: "/")
+      :error ->
+        conn
+        |> put_flash(:error, "Failed to change your password.")
+        |> put_flash(:custom_location, true)
+        |> redirect(to: "/")
+      {:error, changeset} ->
+        render_show(conn, username, key, changeset)
+    end
+  end
+
+  defp render_show(conn, username, key, changeset) do
+    render conn, "show.html", [
+      title: "Choose a new password",
+      container: "container page password-view",
       username: username,
-      key: key
-    ]
-  end
-
-  def reset(conn, %{"username" => username, "key" => key, "password" => password} = params) do
-    user = HexWeb.Repo.get_by(User, username: username)
-    success = User.reset?(user, key)
-
-    if success do
-      revoke_all_keys = Map.get(params, "revoke_all_keys", "yes") == "yes"
-      multi = User.reset(user, password, revoke_all_keys)
-      {:ok, _} = HexWeb.Repo.transaction(multi)
-      HexWeb.Mailer.send("password_reset.html", "Hex.pm - Password reset", [user.email], [])
-    end
-
-    render conn, "reset_result.html", [
-      success: success
+      key: key,
+      changeset: changeset
     ]
   end
 end

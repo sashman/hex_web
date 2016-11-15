@@ -4,40 +4,34 @@ defmodule HexWeb.API.UserControllerTest do
   alias HexWeb.User
 
   setup do
-    User.build(%{username: "eric", email: "eric@mail.com", password: "eric"}, true)
-    |> HexWeb.Repo.insert!
-    :ok
+    %{user: create_user("eric", "eric@mail.com", "ericeric")}
   end
 
   test "create user" do
-    body = %{username: "name", email: "email@mail.com", password: "pass"}
+    body = %{username: "name", email: "email@mail.com", password: "passpass"}
     conn = build_conn()
            |> put_req_header("content-type", "application/json")
            |> post("api/users", Poison.encode!(body))
 
-    assert conn.status == 201
-    body = Poison.decode!(conn.resp_body)
-    assert body["url"] =~ "/api/users/name"
+    assert json_response(conn, 201)["url"] =~ "/api/users/name"
 
-    user = HexWeb.Repo.get_by!(User, username: "name")
-    assert user.email == "email@mail.com"
+    user = HexWeb.Repo.get_by!(User, username: "name") |> HexWeb.Repo.preload(:emails)
+    assert hd(user.emails).email == "email@mail.com"
   end
 
   test "create user sends mails and requires confirmation" do
-    body = %{username: "name", email: "create_user@mail.com", password: "pass"}
+    body = %{username: "name", email: "create_user@mail.com", password: "passpass"}
     conn = build_conn()
            |> put_req_header("content-type", "application/json")
            |> post("api/users", Poison.encode!(body))
+
     assert conn.status == 201
-    user = HexWeb.Repo.get_by!(User, username: "name")
+    user = HexWeb.Repo.get_by!(User, username: "name") |> HexWeb.Repo.preload(:emails)
+    email = hd(user.emails)
 
-    {subject, contents} = HexWeb.Email.Local.read("create_user@mail.com")
+    {subject, contents} = HexWeb.Mail.Local.read("create_user@mail.com")
     assert subject =~ "Hex.pm"
-    assert contents =~ "confirm?username=name&key=" <> user.confirmation_key
-
-    policies_href = ~s(http://localhost:4001/policies)
-    policies_link = ~s(<a href="#{policies_href}">#{policies_href}</a>)
-    assert contents =~ ~s(all of our policies found at #{policies_link})
+    assert contents =~ "email/verify?username=name&email=#{URI.encode_www_form(email.email)}&key=#{email.verification_key}"
 
     meta = %{name: "ecto", version: "1.0.0", description: "Domain-specific language."}
     body = create_tar(meta, [])
@@ -46,12 +40,11 @@ defmodule HexWeb.API.UserControllerTest do
            |> put_req_header("authorization", key_for(user))
            |> post("api/packages/ecto/releases", body)
 
-    assert conn.status == 403
-    assert conn.resp_body =~ "account unconfirmed"
+    assert json_response(conn, 403)["message"] == "email not verified"
 
-    conn = get(build_conn(), "password/confirm?username=name&key=" <> user.confirmation_key)
-    assert conn.status == 200
-    assert conn.resp_body =~ "Account confirmed"
+    conn = get(build_conn(), "email/verify?username=name&email=#{URI.encode_www_form(email.email)}&key=#{email.verification_key}")
+    assert redirected_to(conn) == "/"
+    assert get_flash(conn, :info) =~ "verified"
 
     conn = build_conn()
            |> put_req_header("content-type", "application/octet-stream")
@@ -59,93 +52,95 @@ defmodule HexWeb.API.UserControllerTest do
            |> post("api/packages/ecto/releases", body)
 
     assert conn.status == 201
-
-    {subject, contents} = HexWeb.Email.Local.read("create_user@mail.com")
-    assert subject =~ "Hex.pm"
-    assert contents =~ "confirmed"
   end
 
-  test "email is sent with reset_token when password is reset" do
-    # create user with confirmed account
-    body = %{username: "reset_test", email: "reset_user@mail.com", password: "pass"}
-    conn = build_conn()
-           |> put_req_header("content-type", "application/json")
-           |> post("api/users", Poison.encode!(body))
-    assert conn.status == 201
-    user = HexWeb.Repo.get_by!(User, username: "reset_test")
-
-    conn = get(build_conn(), "password/confirm?username=reset_test&key=" <> user.confirmation_key)
-    assert conn.status == 200
-    assert conn.resp_body =~ "Account confirmed"
-
+  test "email is sent with reset_token when password is reset", c do
     # initiate reset request
-    conn = post(build_conn(), "api/users/#{user.username}/reset", %{})
+    conn = post(build_conn(), "api/users/#{c.user.username}/reset", %{})
     assert conn.status == 204
 
     # check email was sent with correct token
-    user = HexWeb.Repo.get_by!(User, username: "reset_test")
-    {subject, contents} = HexWeb.Email.Local.read("reset_user@mail.com")
+    user = HexWeb.Repo.get_by!(User, username: c.user.username) |> HexWeb.Repo.preload(:emails)
+    email = hd(c.user.emails).email
+    {subject, contents} = HexWeb.Mail.Local.read(email)
     assert subject =~ "Hex.pm"
-    assert contents =~ "#{user.reset_key}"
+    assert contents =~ user.reset_key
 
     # check reset will succeed
-    assert User.reset?(user, user.reset_key) == true
+    assert User.password_reset?(user, user.reset_key) == true
   end
 
   test "create user validates" do
-    body = %{username: "name", password: "pass"}
+    body = %{username: "name", password: "passpass"}
     conn = build_conn()
            |> put_req_header("content-type", "application/json")
            |> post("api/users", Poison.encode!(body))
 
-    assert conn.status == 422
-    body = Poison.decode!(conn.resp_body)
+    body = json_response(conn, 422)
     assert body["message"] == "Validation error(s)"
-    assert body["errors"]["email"] == "can't be blank"
+    assert body["errors"]["emails"] == "can't be blank"
     refute HexWeb.Repo.get_by(User, username: "name")
   end
 
   test "get user" do
     conn = build_conn()
            |> put_req_header("content-type", "application/json")
-           |> put_req_header("authorization", key_for("eric"))
            |> get("api/users/eric")
 
-    assert conn.status == 200
-    body = Poison.decode!(conn.resp_body)
+    body = json_response(conn, 200)
     assert body["username"] == "eric"
-    assert body["email"] == "eric@mail.com"
+    # NOTE: Disabled while waiting for privacy policy grace period
+    # assert body["email"] == "eric@mail.com"
+    refute body["emails"]
     refute body["password"]
 
-    conn = get build_conn(), "api/users/eric"
-    assert conn.status == 401
-  end
-
-  test "recreate unconfirmed user" do
-    # first
-    body = %{username: "name", email: "email@mail.com", password: "pass"}
     conn = build_conn()
            |> put_req_header("content-type", "application/json")
-           |> post("api/users", Poison.encode!(body))
+           |> get("api/users/bad")
 
-    assert conn.status == 201
-    body = Poison.decode!(conn.resp_body)
-    assert body["url"] =~ "/api/users/name"
+    json_response(conn, 404)
+  end
 
-    user = HexWeb.Repo.get_by!(User, username: "name")
-    assert user.email == "email@mail.com"
-
-    # recreate
-    body = %{username: "name", email: "other_email@mail.com", password: "other_pass"}
+  test "test auth" do
     conn = build_conn()
            |> put_req_header("content-type", "application/json")
-           |> post("api/users", Poison.encode!(body))
+           |> put_req_header("authorization", key_for("eric"))
+           |> get("api/users/eric/test")
 
-    assert conn.status == 201
-    body = Poison.decode!(conn.resp_body)
-    assert body["url"] =~ "/api/users/name"
+    body = json_response(conn, 200)
+    assert body["username"] == "eric"
 
-    user = HexWeb.Repo.get_by!(User, username: "name")
-    assert user.email == "other_email@mail.com"
+    conn = build_conn()
+           |> put_req_header("content-type", "application/json")
+           |> put_req_header("authorization", "badkey")
+           |> get("api/users/eric/test")
+
+    json_response(conn, 401)
   end
+
+  # TODO
+  # NOTE: Also test for website sign up controller
+  # test "recreate unconfirmed user" do
+  #   # first
+  #   body = %{username: "name", email: "email@mail.com", password: "passpass"}
+  #   conn = build_conn()
+  #          |> put_req_header("content-type", "application/json")
+  #          |> post("api/users", Poison.encode!(body))
+  #
+  #   assert json_response(conn, 201)["url"] =~ "/api/users/name"
+  #
+  #   user = HexWeb.Repo.get_by!(User, username: "name")
+  #   assert user.email == "email@mail.com"
+  #
+  #   # recreate
+  #   body = %{username: "name", email: "other_email@mail.com", password: "other_pass"}
+  #   conn = build_conn()
+  #          |> put_req_header("content-type", "application/json")
+  #          |> post("api/users", Poison.encode!(body))
+  #
+  #   assert json_response(conn, 201)["url"] =~ "/api/users/name"
+  #
+  #   user = HexWeb.Repo.get_by!(User, username: "name")
+  #   assert user.email == "other_email@mail.com"
+  # end
 end

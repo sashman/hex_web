@@ -14,12 +14,17 @@ defmodule HexWeb.API.ReleaseView do
       {req.name, Map.take(req, ~w(app requirement optional)a)}
     end)
 
+    meta =
+      release.meta
+      |> Map.take([:app, :build_tools, :elixir])
+      |> Map.update!(:build_tools, &Enum.uniq/1)
+
     entity =
       release
       |> Map.take([:version, :has_docs, :inserted_at, :updated_at])
-      |> Map.put(:meta, Map.take(release.meta, [:app, :build_tools, :elixir]))
-      |> Map.put(:url, release_url(HexWeb.Endpoint, :show, package, release))
-      |> Map.put(:package_url, package_url(HexWeb.Endpoint, :show, package))
+      |> Map.put(:meta, meta)
+      |> Map.put(:url, api_release_url(Endpoint, :show, package, release))
+      |> Map.put(:package_url, api_package_url(Endpoint, :show, package))
       |> Map.put(:requirements, reqs)
       |> if_value(release.has_docs, &Map.put(&1, :docs_url, HexWeb.Utils.docs_tarball_url(package, release)))
       |> if_value(assoc_loaded?(release.downloads), &load_downloads(&1, release))

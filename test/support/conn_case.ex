@@ -26,6 +26,7 @@ defmodule HexWeb.ConnCase do
 
       import HexWeb.Router.Helpers
       import HexWeb.TestHelpers
+      import HexWeb.Case
       import unquote(__MODULE__)
 
       # The default endpoint for testing
@@ -36,26 +37,24 @@ defmodule HexWeb.ConnCase do
   setup tags do
     opts = tags |> Map.take([:isolation]) |> Enum.to_list()
     :ok = Ecto.Adapters.SQL.Sandbox.checkout(HexWeb.Repo, opts)
+    HexWeb.Case.reset_store(tags)
+    :ok
   end
 
-  setup tags do
-    if tags[:integration] && Application.get_env(:hex_web, :s3_bucket) do
-      Application.put_env(:hex_web, :store_impl, HexWeb.Store.S3)
-      on_exit fn -> Application.put_env(:hex_web, :store_impl, HexWeb.Store.Local) end
-    end
-
-    {:ok, conn: Phoenix.ConnTest.build_conn()}
+  # See: https://github.com/elixir-lang/plug/issues/455
+  def my_put_session(conn, key, value) do
+    private =
+      conn.private
+      |> Map.update(:plug_session, %{key => value}, &Map.put(&1, key, value))
+      |> Map.put(:plug_session_fetch, :bypass)
+    %{conn | private: private}
   end
 
-  def key_for(username) when is_binary(username) do
-    HexWeb.Repo.get_by!(HexWeb.User, username: username)
-    |> key_for
-  end
+  def test_login(conn, user) do
+    user = HexWeb.Users.sign_in(user)
 
-  def key_for(user) do
-    key = user
-          |> HexWeb.Key.build(%{name: "any_key_name"})
-          |> HexWeb.Repo.insert!
-    key.user_secret
+    conn
+    |> my_put_session("username", user.username)
+    |> my_put_session("key", user.session_key)
   end
 end

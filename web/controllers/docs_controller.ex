@@ -3,64 +3,64 @@ defmodule HexWeb.DocsController do
 
   def usage(conn, _params) do
     render conn, "usage.html", [
-      active: :docs,
-      title: "Mix Usage"
+      title: "Mix usage",
+      container: "container page docs"
     ]
   end
 
   def rebar3_usage(conn, _params) do
     render conn, "rebar3_usage.html", [
-      active: :docs,
-      title: "Rebar3 Usage"
+      title: "Rebar3 usage",
+      container: "container page docs"
     ]
   end
 
   def publish(conn, _params) do
     render conn, "publish.html", [
-      active: :docs,
-      title: "Mix publish package"
+      title: "Mix publish package",
+      container: "container page docs"
     ]
   end
 
   def rebar3_publish(conn, _params) do
     render conn, "rebar3_publish.html", [
-      active: :docs,
-      title: "Rebar3 publish package"
+      title: "Rebar3 publish package",
+      container: "container page docs"
     ]
   end
 
   def tasks(conn, _params) do
     render conn, "tasks.html", [
-      active: :docs,
-      title: "Mix tasks"
+      title: "Mix tasks",
+      container: "container page docs"
     ]
   end
 
   def coc(conn, _params) do
     render conn, "coc.html", [
-      active: :docs,
-      title: "Code of Conduct"
+      title: "Code of Conduct",
+      container: "container page docs"
     ]
   end
 
   def faq(conn, _params) do
     render conn, "faq.html", [
-      active: :docs,
-      title: "FAQ"
+      title: "FAQ",
+      container: "container page docs"
     ]
   end
 
   def mirrors(conn, _params) do
     render conn, "mirrors.html", [
-      active: :docs,
-      title: "Mirrors"
+      title: "Mirrors",
+      container: "container page docs"
     ]
   end
 
   def public_keys(conn, _params) do
     render conn, "public_keys.html", [
-      active: :docs,
-      title: "Public keys"
+      title: "Public keys",
+      container: "container page docs"
     ]
   end
 end

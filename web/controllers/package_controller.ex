@@ -6,8 +6,8 @@ defmodule HexWeb.PackageController do
   @letters for letter <- ?A..?Z, do: <<letter>>
 
   def index(conn, params) do
-    letter        = HexWeb.Utils.parse_search(params["letter"])
-    search        = HexWeb.Utils.parse_search(params["search"])
+    letter = HexWeb.Utils.parse_search(params["letter"])
+    search = HexWeb.Utils.parse_search(params["search"])
 
     filter =
       cond do
@@ -21,12 +21,11 @@ defmodule HexWeb.PackageController do
 
     sort          = HexWeb.Utils.safe_to_atom(params["sort"] || "name", @sort_params)
     page_param    = HexWeb.Utils.safe_int(params["page"]) || 1
-    package_count = Package.count(filter) |> HexWeb.Repo.one!
+    package_count = Packages.count(filter)
     page          = HexWeb.Utils.safe_page(page_param, package_count, @packages_per_page)
     packages      = fetch_packages(page, @packages_per_page, filter, sort)
 
     render conn, "index.html", [
-      active:        :packages,
       title:         "Packages",
       container:     "container",
       per_page:      @packages_per_page,
@@ -37,45 +36,46 @@ defmodule HexWeb.PackageController do
       page:          page,
       packages:      packages,
       letters:       @letters,
-      downloads:     PackageDownload.packages(packages, "all")
-                     |> HexWeb.Repo.all
-                     |> Enum.into(%{})
+      downloads:     Packages.packages_downloads(packages, "all")
     ]
   end
 
   def show(conn, params) do
-    if package = HexWeb.Repo.get_by(Package, name: params["name"]) do
-      releases = Release.all(package)
-                 |> HexWeb.Repo.all
-                 |> Release.sort
+    if package = Packages.get(params["name"]) do
+      releases = Releases.all(package)
 
-      release =
+      {release, type} =
         if version = params["version"] do
-          Enum.find(releases, &(to_string(&1.version) == version))
+          {Enum.find(releases, &(to_string(&1.version) == version)), :release}
         else
-          List.first(releases)
+          {List.first(releases), :package}
         end
 
       if release do
-        package(conn, package, releases, release)
+        package(conn, package, releases, release, type)
       end
     end || not_found(conn)
   end
 
-  defp package(conn, package, releases, release) do
-    has_docs = Enum.any?(releases, fn(release) -> release.has_docs end)
-    release = HexWeb.Repo.preload(release, requirements: Release.requirements(release))
+  defp package(conn, package, releases, release, type) do
+    release = Releases.preload(release)
 
     docs_assigns =
-      if has_docs do
-        [hexdocs_url: HexWeb.Utils.docs_url([package.name]),
-         docs_tarball_url: HexWeb.Utils.docs_tarball_url(package, release)]
-      else
-        [hexdocs_url: nil, docs_tarball_url: nil]
+      cond do
+        type == :package and Enum.any?(releases, fn(release) -> release.has_docs end) ->
+          [hexdocs_url: HexWeb.Utils.docs_url([package.name]),
+           docs_tarball_url: HexWeb.Utils.docs_tarball_url(package, release)]
+        type == :release and release.has_docs ->
+          [hexdocs_url: HexWeb.Utils.docs_url(package, release),
+           docs_tarball_url: HexWeb.Utils.docs_tarball_url(package, release)]
+        true ->
+          [hexdocs_url: nil, docs_tarball_url: nil]
       end
 
+    downloads = Packages.package_downloads(package)
+    owners = Owners.all(package) |> Users.with_emails
+
     render conn, "show.html", [
-      active:            :packages,
       title:             package.name,
       description:       package.meta.description,
       container:         "container package-view",
@@ -83,24 +83,13 @@ defmodule HexWeb.PackageController do
       package:           package,
       releases:          releases,
       current_release:   release,
-      downloads:         PackageDownload.package(package)
-                         |> HexWeb.Repo.all
-                         |> Enum.into(%{}),
-      release_downloads: ReleaseDownload.release(release)
-                         |> HexWeb.Repo.one
+      downloads:         downloads,
+      owners:            owners
     ] ++ docs_assigns
   end
 
   defp fetch_packages(page, packages_per_page, search, sort) do
-    packages = Package.all(page, packages_per_page, search, sort)
-               |> HexWeb.Repo.all
-    versions = Release.package_versions(packages)
-               |> HexWeb.Repo.all
-               |> Enum.into(%{})
-
-    Enum.map(packages, fn package ->
-      version = Release.latest_version(versions[package.id])
-      Map.put(package, :latest_version, version)
-    end)
+    packages = Packages.search(page, packages_per_page, search, sort)
+    Packages.attach_versions(packages)
   end
 end

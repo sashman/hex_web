@@ -6,8 +6,7 @@ defmodule HexWeb.API.DocsControllerTest do
   alias HexWeb.Release
 
   setup do
-    User.build(%{username: "eric", email: "eric@mail.com", password: "eric"}, true)
-    |> HexWeb.Repo.insert!
+    create_user("eric", "eric@mail.com", "ericeric")
     :ok
   end
 
@@ -145,9 +144,8 @@ defmodule HexWeb.API.DocsControllerTest do
     refute HexWeb.Repo.get_by(assoc(ecto, :releases), version: "0.0.1")
 
     # Check docs were deleted
-    assert_raise Ecto.NoResultsError, fn ->
-      get build_conn(), "api/packages/ecto/releases/0.0.1/docs"
-    end
+    conn = get build_conn(), "api/packages/ecto/releases/0.0.1/docs"
+    assert conn.status in 400..499
 
     conn = get build_conn(), "docs/ecto/0.0.1/index.html"
     assert conn.status in 400..499

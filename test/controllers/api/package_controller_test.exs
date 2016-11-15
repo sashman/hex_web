@@ -1,12 +1,11 @@
 defmodule HexWeb.API.PackageControllerTest do
   use HexWeb.ConnCase, async: true
 
-  alias HexWeb.User
   alias HexWeb.Package
   alias HexWeb.Release
 
   setup do
-    user = User.build(%{username: "eric", email: "eric@mail.com", password: "eric"}, true) |> HexWeb.Repo.insert!
+    user = create_user("eric", "eric@mail.com", "ericeric")
     pkg = Package.build(user, pkg_meta(%{name: "decimal", description: "Arbitrary precision decimal arithmetic for Elixir."})) |> HexWeb.Repo.insert!
     Package.build(user, pkg_meta(%{name: "postgrex", description: "Postgrex is awesome"})) |> HexWeb.Repo.insert!
     Release.build(pkg, rel_meta(%{version: "0.0.1", app: "decimal"}), "") |> HexWeb.Repo.insert!
@@ -59,7 +58,7 @@ defmodule HexWeb.API.PackageControllerTest do
   end
 
   test "fetch sort order" do
-    future = %{Ecto.DateTime.utc | year: 2030, month: 1}
+    future = %{HexWeb.Utils.utc_now | year: 2030}
 
     HexWeb.Repo.get_by(Package, name: "postgrex")
     |> Ecto.Changeset.change(updated_at: future)

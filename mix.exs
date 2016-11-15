@@ -4,7 +4,7 @@ defmodule HexWeb.Mixfile do
   def project do
     [app: :hex_web,
      version: "0.0.1",
-     elixir: "~> 1.2",
+     elixir: "~> 1.3",
      elixirc_paths: elixirc_paths(Mix.env),
      gpb_options: gpb_options(),
      xref: xref(),
@@ -28,7 +28,8 @@ defmodule HexWeb.Mixfile do
      strings_as_binaries: true,
      maps: true,
      maps_unset_optional: :omitted,
-     report_warnings: true]
+     report_warnings: true,
+     target_erlang_version: 18]
   end
 
   defp xref do
@@ -36,9 +37,8 @@ defmodule HexWeb.Mixfile do
   end
 
   defp deps do
-    [{:phoenix,             "~> 1.2.0-rc"},
-     {:phoenix_ecto,        "~> 3.0.0"},
-     {:ecto,                "~> 2.0"},
+    [{:phoenix,             "~> 1.2"},
+     {:phoenix_ecto,        "~> 3.1-rc"},
      {:phoenix_html,        "~> 2.3"},
      {:postgrex,            ">= 0.0.0"},
      {:cowboy,              "~> 1.0"},
@@ -52,7 +52,7 @@ defmodule HexWeb.Mixfile do
      {:jiffy,               "~> 0.14"},
      {:rollbax,             "~> 0.5"},
      {:gpb,                 "~> 3.23"},
-     {:plug,                "~> 1.2.0-rc.0", override: true},
+     {:plug,                "~> 1.2"},
      {:phoenix_live_reload, "~> 1.0", only: :dev}]
   end
 

@@ -1,14 +1,11 @@
 defmodule HexWeb.ReleaseTest do
   use HexWeb.ModelCase, async: true
 
-  alias HexWeb.User
   alias HexWeb.Package
   alias HexWeb.Release
 
   setup do
-    user =
-      User.build(%{username: "eric", email: "eric@mail.com", password: "eric"}, true)
-      |> HexWeb.Repo.insert!
+    user = create_user("eric", "eric@mail.com", "ericeric")
     ecto =
       Package.build(user, pkg_meta(%{name: "ecto", description: "Ecto is awesome"}))
       |> HexWeb.Repo.insert!
@@ -19,7 +16,7 @@ defmodule HexWeb.ReleaseTest do
       Package.build(user, pkg_meta(%{name: "decimal", description: "Decimal is awesome, too"}))
       |> HexWeb.Repo.insert!
 
-    {:ok, ecto: ecto, postgrex: postgrex, decimal: decimal}
+    %{ecto: ecto, postgrex: postgrex, decimal: decimal}
   end
 
   test "create release and get", %{ecto: package} do
@@ -66,19 +63,27 @@ defmodule HexWeb.ReleaseTest do
     Release.build(ecto, rel_meta(%{version: "0.1.0", app: "ecto", requirements: reqs}), "")
     |> HexWeb.Repo.insert!
 
-    assert %{meta: %{app: [{"can't be blank", []}]}} =
-           Release.build(decimal, %{"meta" => %{"version" => "0.1.0", "requirements" => [], "build_tools" => ["mix"]}}, "")
+    meta = %{"version" => "0.1.0", "requirements" => [], "build_tools" => ["mix"]}
+    assert %{meta: %{app: [{"can't be blank", _}]}} =
+           Release.build(decimal, %{"meta" => meta}, "")
            |> extract_errors
 
-    assert %{meta: %{build_tools: [{"can't be blank", []}]}} =
-           Release.build(decimal, %{"meta" => %{"app" => "decimal", "version" => "0.1.0", "requirements" => []}}, "")
+    meta = %{"app" => "decimal", "version" => "0.1.0", "requirements" => []}
+    assert %{meta: %{build_tools: [{"can't be blank", _}]}} =
+           Release.build(decimal, %{"meta" => meta}, "")
            |> extract_errors
 
-    assert %{meta: %{build_tools: [{"can't be blank", []}]}} =
-           Release.build(decimal, %{"meta" => %{"app" => "decimal", "version" => "0.1.0", "requirements" => [], "build_tools" => []}}, "")
+    meta = %{"app" => "decimal", "version" => "0.1.0", "requirements" => [], "build_tools" => []}
+    assert %{meta: %{build_tools: [{"can't be blank", _}]}} =
+           Release.build(decimal, %{"meta" => meta}, "")
            |> extract_errors
 
-    assert %{version: [{"is invalid", [type: HexWeb.Version]}]} =
+    meta = %{"app" => "decimal", "version" => "0.1.0", "requirements" => [], "build_tools" => ["mix"], "elixir" => "== == 0.0.1"}
+    assert %{meta: %{elixir: [{"invalid requirement: \"== == 0.0.1\"", _}]}} =
+           Release.build(decimal, %{"meta" => meta}, "")
+           |> extract_errors
+
+    assert %{version: [{"is invalid", _}]} =
            Release.build(ecto, rel_meta(%{version: "0.1", app: "ecto"}), "")
            |> extract_errors
 
@@ -88,9 +93,14 @@ defmodule HexWeb.ReleaseTest do
            |> extract_errors
 
     reqs = [%{name: "decimal", app: "decimal", requirement: "~> 1.0", optional: false}]
-    assert %{requirements: [%{requirement: [{"Failed to use \"decimal\" because\n  You specified ~> 1.0 in your mix.exs\n", []}]}]} =
+    assert %{requirements: [%{requirement: [{"Failed to use \"decimal\" because\n  mix.exs specifies ~> 1.0\n", []}]}]} =
            Release.build(ecto, rel_meta(%{version: "0.1.1", app: "ecto", requirements: reqs}), "")
            |> extract_errors
+  end
+
+  test "ensure unique build tools", %{decimal: decimal} do
+    changeset = Release.build(decimal, rel_meta(%{version: "0.1.0", app: "decimal", build_tools: ["mix", "make", "make"]}), "")
+    assert changeset.changes.meta.changes.build_tools == ["mix", "make"]
   end
 
   defp extract_errors(%Ecto.Changeset{} = changeset) do
